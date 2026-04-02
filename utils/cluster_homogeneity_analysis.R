@@ -1,9 +1,6 @@
 #' Cluster Homogeneity Analysis
 #' 
 #' Assesses clustering quality using burnt pixel time series
-#' 
-#' @author Shiva Khanal
-#' @date 2025
 
 library(data.table)
 library(terra)

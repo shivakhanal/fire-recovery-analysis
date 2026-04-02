@@ -1,9 +1,6 @@
 #' Visualization Functions for Fire Recovery Analysis
 #' 
 #' Creates diagnostic plots and summary visualizations
-#' 
-#' @author Shiva Khanal
-#' @date 2025
 
 library(ggplot2)
 library(gridExtra)

@@ -7,8 +7,7 @@
 #   3. Calculate the pre-fire average from the 5 observations before onset
 #   4. Impact magnitude = pre-fire average minus the FPAR at impact
 #      (set to zero if the minimum did not fall below the pre-fire average)
-#
-# Author: Shiva Khanal, 2025
+
 
 source("utils/helper_functions.R")
 

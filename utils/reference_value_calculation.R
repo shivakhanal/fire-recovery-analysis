@@ -1,175 +1,140 @@
-#' Reference Value Calculation Functions
-#' 
-#' Functions for identifying modal peak periods and calculating reference values
-#' 
-#' @author Your Name
-#' @date 2025
+# Functions to identify the typical peak-growth period for each phenology type
+# and calculate long-term reference FPAR values from unburnt pixels.
+#
+# The input time series (unburnt_ts) should be the mean FPAR across all unburnt
+# pixels in the same phenology type and fire year — not a single raw pixel.
+#
+# Author: Shiva Khanal, 2025
 
-#' Find Reference Values Using Modal Peak Method
-#'
-#' Identifies modal peak position across years and extracts reference values
-#'
-#' @param unburnt_ts Numeric vector of unburnt FPAR time series
-#' @param n_per_year Number of observations per year (default = 46)
-#' @param window_size Size of peak detection window in observations (default = 5)
-#' @return List containing reference values and peak information
-#' @export
-#' @examples
-#' ref_info <- find_reference_values(unburnt_timeseries, n_per_year = 46, window_size = 5)
+
+# ------------------------------------------------------------------------------
+# Find peak-growth periods and long-term reference values
+# ------------------------------------------------------------------------------
+# For each year in the unburnt reference time series, we find the 5-observation
+# window (~40 days) with the highest mean FPAR. We then identify the most common
+# timing of this peak across all years (the "modal peak position"). Reference
+# FPAR values are collected from this same window position in every year and
+# averaged to give the long-term reference level.
+#
+# The modal peak indices are also returned so that recovery can be checked only
+# at these peak-growth observations rather than throughout the whole year.
+
 find_reference_values <- function(unburnt_ts, n_per_year = 46, window_size = 5) {
-  
-  # Handle short time series
+
+  # If the series is shorter than one year, return a simple fallback
   if (length(unburnt_ts) < n_per_year) {
+    fallback <- mean(unburnt_ts, na.rm = TRUE)
     return(list(
-      reference_values = rep(mean(unburnt_ts, na.rm = TRUE), window_size),
-      reference_indices = 1:min(window_size, length(unburnt_ts)),
-      modal_peak_position = 1,
-      yearly_peak_indices = c(),
-      peak_position_in_year = 1,
-      n_years = 0,
-      yearly_peaks = list()
+      reference_values      = rep(fallback, window_size),
+      reference_indices     = seq_len(min(window_size, length(unburnt_ts))),
+      modal_peak_position   = 1L,
+      yearly_peak_indices   = integer(0),
+      peak_position_in_year = 1L,
+      n_years               = 0L,
+      yearly_peaks          = list()
     ))
   }
-  
-  # Calculate number of complete years
+
   n_years <- floor(length(unburnt_ts) / n_per_year)
-  
-  # Find peak windows for each year
-  yearly_peaks <- list()
-  yearly_peak_positions <- c()
-  
-  for (year in 1:n_years) {
-    year_start <- (year - 1) * n_per_year + 1
-    year_end <- year * n_per_year
-    
-    if (year_end > length(unburnt_ts)) {
-      year_end <- length(unburnt_ts)
-    }
-    
-    year_data <- unburnt_ts[year_start:year_end]
-    
-    # Find the best window with highest mean
-    best_mean <- -Inf
-    best_start <- 1
-    
-    # Try all possible windows of size window_size within the year
-    max_start <- length(year_data) - window_size + 1
-    
-    for (start_pos in 1:max_start) {
-      window_data <- year_data[start_pos:(start_pos + window_size - 1)]
-      
-      # Skip if any NA values
-      if (any(is.na(window_data))) next
-      
-      window_mean <- mean(window_data, na.rm = TRUE)
-      
-      if (window_mean > best_mean) {
-        best_mean <- window_mean
-        best_start <- start_pos
+
+  # Step 1: find the best 5-observation window within each year
+  yearly_peaks          <- vector("list", n_years)
+  yearly_peak_positions <- integer(n_years)
+
+  for (yr in seq_len(n_years)) {
+    yr_start  <- (yr - 1L) * n_per_year + 1L
+    yr_end    <- min(yr * n_per_year, length(unburnt_ts))
+    yr_data   <- unburnt_ts[yr_start:yr_end]
+
+    best_mean  <- -Inf
+    best_start <- 1L
+    max_start  <- length(yr_data) - window_size + 1L
+
+    if (max_start >= 1L) {
+      for (pos in seq_len(max_start)) {
+        w <- yr_data[pos:(pos + window_size - 1L)]
+        if (any(is.na(w))) next
+        if (mean(w) > best_mean) {
+          best_mean  <- mean(w)
+          best_start <- pos
+        }
       }
     }
-    
-    yearly_peaks[[year]] <- list(
-      position = best_start,
-      absolute_start = year_start + best_start - 1,
-      values = year_data[best_start:(best_start + window_size - 1)],
-      mean_value = best_mean
+
+    abs_start <- yr_start + best_start - 1L
+    w_end     <- min(abs_start + window_size - 1L, length(unburnt_ts))
+
+    yearly_peaks[[yr]] <- list(
+      position       = best_start,
+      absolute_start = abs_start,
+      values         = unburnt_ts[abs_start:w_end],
+      mean_value     = if (best_mean == -Inf) NA_real_ else best_mean
     )
-    
-    yearly_peak_positions <- c(yearly_peak_positions, best_start)
+    yearly_peak_positions[yr] <- best_start
   }
-  
-  # Find the modal (most common) peak position across years
-  if (length(yearly_peak_positions) > 0) {
-    position_table <- table(yearly_peak_positions)
-    modal_position <- as.numeric(names(position_table)[which.max(position_table)])
-  } else {
-    modal_position <- 1
+
+  # Step 2: find the most common peak position across all years
+  pos_table      <- table(yearly_peak_positions)
+  modal_position <- as.integer(names(pos_table)[which.max(pos_table)])
+
+  # Step 3: collect FPAR values from that modal window in every year
+  all_ref_values  <- numeric(0)
+  all_ref_indices <- integer(0)
+
+  for (yr in seq_len(n_years)) {
+    yr_start  <- (yr - 1L) * n_per_year + 1L
+    modal_abs <- yr_start + modal_position - 1L
+    modal_end <- modal_abs + window_size - 1L
+    if (modal_end > length(unburnt_ts)) next
+    vals <- unburnt_ts[modal_abs:modal_end]
+    if (any(is.na(vals))) next
+    all_ref_values  <- c(all_ref_values,  vals)
+    all_ref_indices <- c(all_ref_indices, modal_abs:modal_end)
   }
-  
-  # Collect all reference values from the modal position across all years
-  all_reference_values <- c()
-  all_reference_indices <- c()
-  
-  for (year in 1:n_years) {
-    year_start <- (year - 1) * n_per_year + 1
-    
-    # Calculate absolute indices for the modal position in this year
-    modal_start_abs <- year_start + modal_position - 1
-    modal_end_abs <- modal_start_abs + window_size - 1
-    
-    # Check if indices are valid
-    if (modal_end_abs <= length(unburnt_ts)) {
-      year_reference_values <- unburnt_ts[modal_start_abs:modal_end_abs]
-      
-      # Only include if no NA values
-      if (!any(is.na(year_reference_values))) {
-        all_reference_values <- c(all_reference_values, year_reference_values)
-        all_reference_indices <- c(all_reference_indices, modal_start_abs:modal_end_abs)
-      }
-    }
+
+  # Fallback if every window had missing data
+  if (length(all_ref_values) == 0) {
+    all_ref_values  <- rep(mean(unburnt_ts, na.rm = TRUE), window_size)
+    all_ref_indices <- seq_len(window_size)
   }
-  
-  # If we have reference values, use them; otherwise fallback
-  if (length(all_reference_values) > 0) {
-    reference_values <- all_reference_values
-    reference_indices <- all_reference_indices
-  } else {
-    # Fallback: use the first year's modal position
-    modal_start_abs <- modal_position
-    modal_end_abs <- modal_position + window_size - 1
-    if (modal_end_abs <= length(unburnt_ts)) {
-      reference_values <- unburnt_ts[modal_start_abs:modal_end_abs]
-      reference_indices <- modal_start_abs:modal_end_abs
-    } else {
-      reference_values <- rep(mean(unburnt_ts, na.rm = TRUE), window_size)
-      reference_indices <- 1:window_size
-    }
+
+  # Step 4: collect all peak-period band indices (used to restrict recovery checks)
+  yearly_peak_indices <- integer(0)
+  for (yr in seq_len(n_years)) {
+    yr_start  <- (yr - 1L) * n_per_year + 1L
+    modal_abs <- yr_start + modal_position - 1L
+    modal_end <- modal_abs + window_size - 1L
+    valid_idx <- (modal_abs:modal_end)[(modal_abs:modal_end) <= length(unburnt_ts)]
+    yearly_peak_indices <- c(yearly_peak_indices, valid_idx)
   }
-  
-  # Create yearly peak indices for all years (for recovery comparison)
-  yearly_peak_indices <- c()
-  for (year in 1:n_years) {
-    year_start <- (year - 1) * n_per_year + 1
-    modal_indices_year <- (year_start + modal_position - 1):(year_start + modal_position + window_size - 2)
-    
-    # Only include valid indices
-    valid_indices <- modal_indices_year[modal_indices_year <= length(unburnt_ts)]
-    yearly_peak_indices <- c(yearly_peak_indices, valid_indices)
-  }
-  
+
   return(list(
-    reference_values = reference_values,
-    reference_indices = reference_indices,
-    modal_peak_position = modal_position,
-    yearly_peak_indices = yearly_peak_indices,
+    reference_values      = all_ref_values,
+    reference_indices     = all_ref_indices,
+    modal_peak_position   = modal_position,
+    yearly_peak_indices   = yearly_peak_indices,
     peak_position_in_year = modal_position,
-    n_years = n_years,
-    yearly_peaks = yearly_peaks
+    n_years               = n_years,
+    yearly_peaks          = yearly_peaks
   ))
 }
 
-#' Calculate Reference Statistics
-#'
-#' Calculates summary statistics for reference values
-#'
-#' @param reference_info Output from find_reference_values()
-#' @return Data frame with reference statistics
-#' @export
+
+# ------------------------------------------------------------------------------
+# Simple summary statistics for reference values
+# ------------------------------------------------------------------------------
+
 calculate_reference_statistics <- function(reference_info) {
-  
-  stats <- data.frame(
+  v <- reference_info$reference_values
+  data.frame(
     modal_peak_position = reference_info$modal_peak_position,
-    n_years_used = reference_info$n_years,
-    n_reference_values = length(reference_info$reference_values),
-    reference_mean = mean(reference_info$reference_values, na.rm = TRUE),
-    reference_sd = sd(reference_info$reference_values, na.rm = TRUE),
-    reference_min = min(reference_info$reference_values, na.rm = TRUE),
-    reference_max = max(reference_info$reference_values, na.rm = TRUE),
-    reference_median = median(reference_info$reference_values, na.rm = TRUE),
-    cv = sd(reference_info$reference_values, na.rm = TRUE) / 
-      mean(reference_info$reference_values, na.rm = TRUE) * 100
+    n_years_used        = reference_info$n_years,
+    n_reference_values  = length(v),
+    reference_mean      = mean(v,   na.rm = TRUE),
+    reference_sd        = sd(v,     na.rm = TRUE),
+    reference_min       = min(v,    na.rm = TRUE),
+    reference_max       = max(v,    na.rm = TRUE),
+    reference_median    = median(v, na.rm = TRUE),
+    cv_pct              = sd(v, na.rm = TRUE) / mean(v, na.rm = TRUE) * 100
   )
-  
-  return(stats)
 }

@@ -1,9 +1,6 @@
 #' Data Preprocessing Script
 #' 
 #' Prepares input data for fire recovery analysis
-#' 
-#' @author Shiva Khanal
-#' @date 2025
 
 library(terra)
 library(sf)

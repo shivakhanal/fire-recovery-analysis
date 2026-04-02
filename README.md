@@ -4,13 +4,6 @@ This repository contains the R code used to quantify post-fire canopy recovery
 in south-east Australian forests using MODIS FPAR (fraction of absorbed
 photosynthetically active radiation) time series (2001–2022).
 
-**Associated paper:**
-Khanal, S. et al. (2025). Quantifying Post-Fire Recovery of Forest Canopies in
-South-East Australia Using MODIS FPAR Time Series and Clustering Analysis.
-*Remote Sensing of Environment.* DOI: [to be updated]
-
----
-
 ## What the code does
 
 The code takes MODIS FPAR time series for burnt and unburnt forest pixels and:
@@ -50,39 +43,13 @@ fire-recovery-analysis/
 │   ├── helper_functions.R           # Shared utilities (date conversion, logging)
 │   ├── reference_value_calculation.R # Identify peak-growth periods
 │   └── cluster_homogeneity_analysis.R # Check clustering quality
-├── examples/
-│   └── example_workflow.R           # Worked example for one cluster and fire year
-└── docs/
-    └── methodology.md               # Full methodological details
+
 ```
 
 ---
-
-## Input data required
-
-| File | Description |
-|------|-------------|
-| `modis_fpar_stack_2001_2022.tif` | MODIS FPAR raster stack — 1,012 bands (8-day composites, 500 m, 2001–2022), quality-filtered and gap-filled in TIMESAT |
-| `cluster_assignments.csv` | Phenology type for each pixel — columns: `class` (1–50), `x`, `y` |
-| `fire_history.gpkg` | Fire perimeter polygons with `FireYear` (format YYYYMM, e.g. `200607` = July 2006 – June 2007) and `FireType` (prescribed / wildfire) |
-| `unburnt_mean_timeseries.csv` | Pre-computed mean FPAR of unburnt pixels for each phenology type and fire year — columns: `cluster`, `fireyear`, then 1,012 FPAR columns |
 
 **Fire year convention:** Australian fire years run from 1 July to 30 June.
 The code uses this convention throughout.
-
----
-
-## How to run
-
-Set your working directory to the repository root, then run the example workflow:
-
-```r
-setwd("/path/to/fire-recovery-analysis")
-source("examples/example_workflow.R")
-```
-
-The example walks through the full pipeline for phenology type 23 and fire year
-2006/07. Adapt the cluster and fire year numbers for your own analysis.
 
 ### R packages needed
 
@@ -110,21 +77,8 @@ cluster–fire-year combination.
 
 ---
 
-## Citation
-
-If you use this code, please cite the associated paper:
-
-```
-Khanal, S. et al. (2025). Quantifying Post-Fire Recovery of Forest Canopies
-in South-East Australia Using MODIS FPAR Time Series and Clustering Analysis.
-Remote Sensing of Environment. DOI: [to be updated]
-```
-
 ## Contact
-
 Shiva Khanal — 1khanalshiva@gmail.com
-[GitHub Issues](https://github.com/shivakhanal/fire-recovery-analysis/issues)
 
-## License
 
-MIT License — see LICENSE file.
+

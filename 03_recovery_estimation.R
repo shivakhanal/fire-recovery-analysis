@@ -16,13 +16,9 @@
 #   (recovery observation number - impact observation number) x 8 days
 #
 # Pixels meeting neither criterion by the end of 2022 are returned with
-# recovery_days = -1 (not recovered) and are excluded from duration analyses.
-#
-# Author: Shiva Khanal, 2025
 
 source("utils/helper_functions.R")
 source("utils/reference_value_calculation.R")
-
 
 # ------------------------------------------------------------------------------
 # Estimate recovery time for a single pixel

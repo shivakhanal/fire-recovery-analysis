@@ -3,8 +3,6 @@
 #
 # The input time series (unburnt_ts) should be the mean FPAR across all unburnt
 # pixels in the same phenology type and fire year — not a single raw pixel.
-#
-# Author: Shiva Khanal, 2025
 
 
 # ------------------------------------------------------------------------------

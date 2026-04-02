@@ -1,4 +1,4 @@
-# Post-Fire Forest Canopy Recovery — R Code
+# Post-Fire Forest Canopy Recovery - R Code
 
 This repository contains the R code used to quantify post-fire canopy recovery
 in south-east Australian forests using MODIS FPAR (fraction of absorbed
@@ -9,7 +9,7 @@ photosynthetically active radiation) time series (2001–2022).
 The code takes MODIS FPAR time series for burnt and unburnt forest pixels and:
 
 1. Groups pixels into forest phenology types based on their long-term FPAR
-   patterns (the clustering itself was done separately in TerrSet — see note below)
+   patterns (the clustering itself was done separately in TerrSet - see note below)
 2. For each burnt pixel, detects when FPAR dropped (fire impact) and how large
    the drop was relative to pre-fire conditions
 3. Estimates how long it took for the burnt pixel's FPAR to recover to levels
@@ -66,10 +66,10 @@ working with the full raster stack.
 
 For each burnt pixel the code returns:
 
-- **Impact magnitude** — how much FPAR dropped relative to pre-fire levels
-- **Recovery time** — days from the FPAR minimum to recovery (-1 if not
+- **Impact magnitude** - how much FPAR dropped relative to pre-fire levels
+- **Recovery time** - days from the FPAR minimum to recovery (-1 if not
   recovered within 2001–2022)
-- **Recovery method** — whether recovery was detected by Stage 1, Stage 2,
+- **Recovery method** - whether recovery was detected by Stage 1, Stage 2,
   or not at all
 
 Results are saved as CSVs and diagnostic time series plots for each
@@ -78,7 +78,7 @@ cluster–fire-year combination.
 ---
 
 ## Contact
-Shiva Khanal — 1khanalshiva@gmail.com
+Shiva Khanal - 1khanalshiva@gmail.com
 
 
 

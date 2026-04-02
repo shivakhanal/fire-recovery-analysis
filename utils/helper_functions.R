@@ -1,5 +1,4 @@
 # Helper functions used across the fire recovery pipeline.
-# Author: Shiva Khanal, 2025
 
 library(terra)
 library(sf)

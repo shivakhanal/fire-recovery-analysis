@@ -2,14 +2,14 @@
 #' 
 #' Prepares input data for fire recovery analysis
 #' 
-#' @author Your Name
+#' @author Shiva Khanal
 #' @date 2025
 
 library(terra)
 library(sf)
 library(dplyr)
 
-source("scripts/utils/helper_functions.R")
+source("utils/helper_functions.R")
 
 #' Load and Prepare FPAR Stack
 #'

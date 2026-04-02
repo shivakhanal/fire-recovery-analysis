@@ -2,7 +2,7 @@
 #' 
 #' Creates diagnostic plots and summary visualizations
 #' 
-#' @author Your Name
+#' @author Shiva Khanal
 #' @date 2025
 
 library(ggplot2)
@@ -10,8 +10,8 @@ library(gridExtra)
 library(viridis)
 library(dplyr)
 
-source("scripts/utils/helper_functions.R")
-source("scripts/utils/reference_value_calculation.R")
+source("utils/helper_functions.R")
+source("utils/reference_value_calculation.R")
 
 #' Create Time Series Diagnostic Plot
 #'

@@ -1,236 +1,208 @@
-#' Post-Fire Recovery Estimation
-#' 
-#' Two-stage recovery detection with peak-period restriction
-#' 
-#' @author Your Name
-#' @date 2025
+# Estimate post-fire canopy recovery time for each burnt pixel.
+#
+# Recovery is checked only during the annual peak-growth period of each
+# phenology type, not throughout the full year. Two criteria are applied:
+#
+#   Stage 1 (primary): the burnt pixel's FPAR reaches at least 95% of the
+#     current-year unburnt average at the same peak-growth observation.
+#     This accounts for year-to-year variation in climate conditions.
+#
+#   Stage 2 (fallback): if Stage 1 is never met, the burnt pixel's FPAR
+#     reaches at least 90% of the long-term average peak FPAR for that
+#     phenology type. This captures substantial but incomplete recovery for
+#     pixels severely affected by high-severity fire.
+#
+# Recovery time is calculated as:
+#   (recovery observation number - impact observation number) x 8 days
+#
+# Pixels meeting neither criterion by the end of 2022 are returned with
+# recovery_days = -1 (not recovered) and are excluded from duration analyses.
+#
+# Author: Shiva Khanal, 2025
 
-source("scripts/utils/helper_functions.R")
-source("scripts/utils/reference_value_calculation.R")
+source("utils/helper_functions.R")
+source("utils/reference_value_calculation.R")
 
-#' Calculate Recovery Time with Two-Stage Detection
-#'
-#' Implements hierarchical recovery detection with peak-period restriction
-#'
-#' @param burnt_ts Numeric vector of burnt pixel FPAR time series
-#' @param unburnt_ts Numeric vector of unburnt reference FPAR time series
-#' @param fire_impact_result Output from detect_fire_impact()
-#' @param recovery_threshold_stage1 Stage 1 threshold (proportion of unburnt, default = 0.95)
-#' @param recovery_threshold_stage2 Stage 2 threshold (proportion of reference mean, default = 0.90)
-#' @param n_per_year Number of observations per year (default = 46)
-#' @param strict_peak_only If TRUE, only detect recovery during peak periods (default = TRUE)
-#' @return List containing recovery metrics
-#' @export
-#' @examples
-#' recovery <- calculate_recovery_time(burnt_ts, unburnt_ts, fire_impact, 
-#'                                     recovery_threshold_stage1 = 0.95,
-#'                                     recovery_threshold_stage2 = 0.90,
-#'                                     strict_peak_only = TRUE)
-calculate_recovery_time <- function(burnt_ts, unburnt_ts, fire_impact_result, 
+
+# ------------------------------------------------------------------------------
+# Estimate recovery time for a single pixel
+# ------------------------------------------------------------------------------
+# unburnt_ts must be the mean FPAR across all unburnt pixels in the same
+# phenology type and fire year — not a single raw pixel time series.
+
+calculate_recovery_time <- function(burnt_ts,
+                                    unburnt_ts,
+                                    fire_impact_result,
                                     recovery_threshold_stage1 = 0.95,
                                     recovery_threshold_stage2 = 0.90,
-                                    n_per_year = 46, 
-                                    strict_peak_only = TRUE) {
-  
-  # Check if impact was detected
+                                    n_per_year = 46) {
+
+  # No impact found — cannot assess recovery
   if (is.na(fire_impact_result$impact_date_idx)) {
     return(list(
-      recovery_days = -1, 
-      recovery_idx = -1, 
-      recovered = FALSE,
-      reference_values = NA, 
-      reference_mean = NA, 
-      recovery_method = "no_impact"
+      recovery_days       = -1L,
+      recovery_idx        = -1L,
+      recovered           = FALSE,
+      reference_mean      = NA_real_,
+      recovery_method     = "no_impact",
+      modal_peak_position = NA_integer_,
+      future_peak_indices = integer(0),
+      stage1_checks       = NULL,
+      stage2_checks       = NULL
     ))
   }
-  
+
   impact_idx <- fire_impact_result$impact_date_idx
-  
-  # Get reference values using modal peak method
-  reference_info <- find_reference_values(unburnt_ts, n_per_year = n_per_year, window_size = 5)
-  reference_mean <- mean(reference_info$reference_values, na.rm = TRUE)
-  
-  # Get all yearly peak indices that occur after the impact
-  future_peak_indices <- reference_info$yearly_peak_indices[
-    reference_info$yearly_peak_indices > impact_idx
+
+  # Identify the typical peak-growth period and long-term reference level
+  ref_info       <- find_reference_values(unburnt_ts, n_per_year = n_per_year,
+                                          window_size = 5)
+  reference_mean <- mean(ref_info$reference_values, na.rm = TRUE)
+
+  # Only check recovery at peak-growth observations after the impact date
+  future_peaks <- ref_info$yearly_peak_indices[
+    ref_info$yearly_peak_indices > impact_idx
   ]
-  
-  if (length(future_peak_indices) == 0) {
+
+  if (length(future_peaks) == 0) {
     return(list(
-      recovery_days = -1, 
-      recovery_idx = -1, 
-      recovered = FALSE,
-      reference_values = reference_info$reference_values,
-      reference_mean = reference_mean,
-      recovery_method = "no_future_peaks"
+      recovery_days       = -1L,
+      recovery_idx        = -1L,
+      recovered           = FALSE,
+      reference_mean      = reference_mean,
+      recovery_method     = "no_future_peaks",
+      modal_peak_position = ref_info$modal_peak_position,
+      future_peak_indices = integer(0),
+      stage1_checks       = NULL,
+      stage2_checks       = NULL
     ))
   }
-  
-  # STAGE 1: Dynamic Catchup - Check if burnt reaches 95% of contemporary unburnt
-  recovery_idx_stage1 <- NA
-  stage1_checks <- data.frame(
-    peak_idx = integer(),
-    burnt_value = numeric(),
-    unburnt_value = numeric(),
-    catchup_threshold = numeric(),
-    meets_criterion = logical()
-  )
-  
-  for (peak_idx in future_peak_indices) {
-    if (peak_idx <= length(burnt_ts) && peak_idx <= length(unburnt_ts) && 
-        !is.na(burnt_ts[peak_idx]) && !is.na(unburnt_ts[peak_idx])) {
-      
-      burnt_value <- burnt_ts[peak_idx]
-      unburnt_value <- unburnt_ts[peak_idx]
-      catchup_threshold <- recovery_threshold_stage1 * unburnt_value
-      meets_criterion <- burnt_value >= catchup_threshold
-      
-      # Store check results
-      stage1_checks <- rbind(stage1_checks, data.frame(
-        peak_idx = peak_idx,
-        burnt_value = burnt_value,
-        unburnt_value = unburnt_value,
-        catchup_threshold = catchup_threshold,
-        meets_criterion = meets_criterion
-      ))
-      
-      if (meets_criterion) {
-        recovery_idx_stage1 <- peak_idx
-        break
-      }
-    }
+
+  # --- Stage 1: does the burnt pixel reach 95% of the current-year unburnt? -
+  stage1_checks   <- data.frame(peak_idx = integer(0), burnt_value = numeric(0),
+                                unburnt_value = numeric(0),
+                                threshold = numeric(0), met = logical(0))
+  recovery_idx_s1 <- NA_integer_
+
+  for (pk in future_peaks) {
+    if (pk > length(burnt_ts) || pk > length(unburnt_ts)) next
+    b <- burnt_ts[pk];  u <- unburnt_ts[pk]
+    if (is.na(b) || is.na(u)) next
+    thr <- recovery_threshold_stage1 * u
+    met <- b >= thr
+    stage1_checks <- rbind(stage1_checks,
+                           data.frame(peak_idx = pk, burnt_value = b,
+                                      unburnt_value = u, threshold = thr, met = met))
+    if (met) { recovery_idx_s1 <- pk; break }
   }
-  
-  # If Stage 1 successful, return
-  if (!is.na(recovery_idx_stage1)) {
-    recovery_days <- (recovery_idx_stage1 - impact_idx) * 8
-    
+
+  if (!is.na(recovery_idx_s1)) {
     return(list(
-      recovery_days = recovery_days,
-      recovery_idx = recovery_idx_stage1,
-      recovered = TRUE,
-      reference_values = reference_info$reference_values,
-      reference_mean = reference_mean,
-      modal_peak_position = reference_info$modal_peak_position,
-      recovery_method = "stage1_dynamic_catchup",
-      future_peak_indices = future_peak_indices,
-      stage1_checks = stage1_checks,
-      stage2_checks = NULL
+      recovery_days       = (recovery_idx_s1 - impact_idx) * 8L,
+      recovery_idx        = recovery_idx_s1,
+      recovered           = TRUE,
+      reference_mean      = reference_mean,
+      recovery_method     = "stage1_dynamic_catchup",
+      modal_peak_position = ref_info$modal_peak_position,
+      future_peak_indices = future_peaks,
+      stage1_checks       = stage1_checks,
+      stage2_checks       = NULL
     ))
   }
-  
-  # STAGE 2: Static Threshold - Check if burnt reaches 90% of reference mean
-  if (!strict_peak_only) {
-    # This section kept for backwards compatibility but typically not used
-    recovery_idx_stage2 <- NA
-    static_threshold_value <- recovery_threshold_stage2 * reference_mean
-    
-    for (peak_idx in future_peak_indices) {
-      if (peak_idx <= length(burnt_ts) && !is.na(burnt_ts[peak_idx])) {
-        burnt_value <- burnt_ts[peak_idx]
-        
-        if (burnt_value >= static_threshold_value) {
-          recovery_idx_stage2 <- peak_idx
-          break
-        }
-      }
-    }
-    
-    if (!is.na(recovery_idx_stage2)) {
-      recovery_days <- (recovery_idx_stage2 - impact_idx) * 8
-      
-      return(list(
-        recovery_days = recovery_days,
-        recovery_idx = recovery_idx_stage2,
-        recovered = TRUE,
-        reference_values = reference_info$reference_values,
-        reference_mean = reference_mean,
-        modal_peak_position = reference_info$modal_peak_position,
-        recovery_method = "stage2_static_threshold",
-        future_peak_indices = future_peak_indices,
-        stage1_checks = stage1_checks,
-        stage2_checks = data.frame(
-          static_threshold = static_threshold_value,
-          recovery_idx = recovery_idx_stage2
-        )
-      ))
-    }
+
+  # --- Stage 2: does the burnt pixel reach 90% of the long-term average? ----
+  static_thr    <- recovery_threshold_stage2 * reference_mean
+  stage2_checks <- data.frame(peak_idx = integer(0), burnt_value = numeric(0),
+                              static_threshold = numeric(0), met = logical(0))
+  recovery_idx_s2 <- NA_integer_
+
+  for (pk in future_peaks) {
+    if (pk > length(burnt_ts)) next
+    b <- burnt_ts[pk]
+    if (is.na(b)) next
+    met <- b >= static_thr
+    stage2_checks <- rbind(stage2_checks,
+                           data.frame(peak_idx = pk, burnt_value = b,
+                                      static_threshold = static_thr, met = met))
+    if (met) { recovery_idx_s2 <- pk; break }
   }
-  
-  # No recovery detected
-  max_peak_value <- ifelse(nrow(stage1_checks) > 0, 
-                           max(stage1_checks$burnt_value, na.rm = TRUE), 
-                           NA)
-  
+
+  if (!is.na(recovery_idx_s2)) {
+    return(list(
+      recovery_days       = (recovery_idx_s2 - impact_idx) * 8L,
+      recovery_idx        = recovery_idx_s2,
+      recovered           = TRUE,
+      reference_mean      = reference_mean,
+      recovery_method     = "stage2_static_threshold",
+      modal_peak_position = ref_info$modal_peak_position,
+      future_peak_indices = future_peaks,
+      stage1_checks       = stage1_checks,
+      stage2_checks       = stage2_checks
+    ))
+  }
+
+  # --- Neither criterion met -------------------------------------------------
   return(list(
-    recovery_days = -1,
-    recovery_idx = -1,
-    recovered = FALSE,
-    reference_values = reference_info$reference_values,
-    reference_mean = reference_mean,
-    modal_peak_position = reference_info$modal_peak_position,
-    recovery_method = "no_recovery",
-    future_peak_indices = future_peak_indices,
-    stage1_checks = stage1_checks,
-    stage2_checks = NULL,
-    max_peak_value = max_peak_value
+    recovery_days       = -1L,
+    recovery_idx        = -1L,
+    recovered           = FALSE,
+    reference_mean      = reference_mean,
+    recovery_method     = "no_recovery",
+    modal_peak_position = ref_info$modal_peak_position,
+    future_peak_indices = future_peaks,
+    stage1_checks       = stage1_checks,
+    stage2_checks       = stage2_checks,
+    max_peak_value      = if (nrow(stage1_checks) > 0)
+                            max(stage1_checks$burnt_value, na.rm = TRUE) else NA_real_
   ))
 }
 
-#' Batch Process Recovery Estimation
-#'
-#' Processes multiple burnt pixels for recovery estimation
-#'
-#' @param burnt_matrix Matrix of burnt pixel time series (rows = pixels, cols = time)
-#' @param unburnt_ts Numeric vector of unburnt reference time series
-#' @param impact_results Data frame from batch_detect_fire_impact()
-#' @param recovery_threshold_stage1 Stage 1 threshold (default = 0.95)
-#' @param recovery_threshold_stage2 Stage 2 threshold (default = 0.90)
-#' @param n_per_year Number of observations per year
-#' @return Data frame with recovery metrics for all pixels
-#' @export
-batch_calculate_recovery <- function(burnt_matrix, unburnt_ts, impact_results, 
+
+# ------------------------------------------------------------------------------
+# Process all burnt pixels for one cluster–fire-year combination
+# ------------------------------------------------------------------------------
+
+batch_calculate_recovery <- function(burnt_matrix,
+                                     unburnt_ts,
+                                     impact_results,
                                      recovery_threshold_stage1 = 0.95,
                                      recovery_threshold_stage2 = 0.90,
                                      n_per_year = 46) {
-  
-  results_list <- list()
-  
-  for (i in 1:nrow(burnt_matrix)) {
+
+  n_pixels     <- nrow(burnt_matrix)
+  results_list <- vector("list", n_pixels)
+
+  for (i in seq_len(n_pixels)) {
     burnt_ts <- as.numeric(burnt_matrix[i, ])
-    
-    # Get impact result for this pixel
-    impact_result <- list(
+
+    impact <- list(
       impact_magnitude = impact_results$impact_magnitude[i],
-      impact_date_idx = impact_results$impact_date_idx[i],
-      pre_fire_mean = impact_results$pre_fire_mean[i],
-      impact_value = impact_results$impact_value[i],
-      unburnt_reference = impact_results$unburnt_reference[i]
+      impact_date_idx  = impact_results$impact_date_idx[i],
+      onset_date_idx   = impact_results$onset_date_idx[i],
+      pre_fire_mean    = impact_results$pre_fire_mean[i],
+      impact_value     = impact_results$impact_value[i]
     )
-    
-    # Calculate recovery
-    recovery_result <- calculate_recovery_time(
-      burnt_ts, unburnt_ts, impact_result,
+
+    rec <- calculate_recovery_time(
+      burnt_ts                  = burnt_ts,
+      unburnt_ts                = unburnt_ts,
+      fire_impact_result        = impact,
       recovery_threshold_stage1 = recovery_threshold_stage1,
       recovery_threshold_stage2 = recovery_threshold_stage2,
-      n_per_year = n_per_year,
-      strict_peak_only = TRUE
+      n_per_year                = n_per_year
     )
-    
+
     results_list[[i]] <- data.frame(
-      pixel_id = i,
-      recovery_days = recovery_result$recovery_days,
-      recovery_idx = recovery_result$recovery_idx,
-      recovered = recovery_result$recovered,
-      reference_mean = recovery_result$reference_mean,
-      modal_peak_position = ifelse(is.null(recovery_result$modal_peak_position), 
-                                   NA, recovery_result$modal_peak_position),
-      recovery_method = recovery_result$recovery_method
+      pixel_id            = i,
+      recovery_days       = rec$recovery_days,
+      recovery_idx        = rec$recovery_idx,
+      recovered           = rec$recovered,
+      reference_mean      = rec$reference_mean,
+      modal_peak_position = ifelse(is.null(rec$modal_peak_position),
+                                   NA_integer_, rec$modal_peak_position),
+      recovery_method     = rec$recovery_method
     )
   }
-  
-  # Combine results
-  results_df <- do.call(rbind, results_list)
-  
-  return(results_df)
+
+  do.call(rbind, results_list)
 }

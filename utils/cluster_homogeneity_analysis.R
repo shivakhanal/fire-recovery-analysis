@@ -2,7 +2,7 @@
 #' 
 #' Assesses clustering quality using burnt pixel time series
 #' 
-#' @author Your Name
+#' @author Shiva Khanal
 #' @date 2025
 
 library(data.table)
